@@ -1,0 +1,745 @@
+{
+  "name": "Veille ADS — Perso (Gemini + LangChain) v19",
+  "nodes": [
+    {
+      "id": "guide",
+      "name": "Guide — Veille Perso v19",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        120,
+        40
+      ],
+      "parameters": {
+        "width": 540,
+        "height": 200,
+        "content": "## Veille ADS Perso v3\nGemini 2.5-flash — 2 Basic LLM Chains (résumé + LinkedIn)\nUpsert Notion (HTTP PATCH/POST) · Telegram 🔥 Haute\nCron : 7h et 13h tous les jours"
+      }
+    },
+    {
+      "id": "trigger",
+      "name": "7h + 13h — Tous les jours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7,13 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "load-notion-urls",
+      "name": "Charger URLs Notion",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        300
+      ],
+      "alwaysOutputData": true,
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "value": "371e27a7-f3e3-8104-abf3-ec5d673086f3",
+          "mode": "id"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "credentials": {
+        "notionApi": {
+          "id": "4rbkLchn0g0a74Te",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "id": "seed-memory",
+      "name": "Initialiser mémoire",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const pages = $input.all();\n\nconst urlMap = {};\nconst fullUrls = [];\n\nfor (const p of pages) {\n  const props = p.json?.properties || {};\n  const urlProp = props['URL'] || props['url'] || props['Url'];\n  const url = urlProp?.url || '';\n  if (!url || !url.startsWith('http')) continue;\n\n  const pageId = p.json?.id || '';\n  const resumeArr = props['Résumé']?.rich_text || props['Resume']?.rich_text || [];\n  const linkedinArr = props['Idée post LinkedIn']?.rich_text\n    || props['Idee post LinkedIn']?.rich_text\n    || props['idée post linkedin']?.rich_text || [];\n\n  const hasResume   = resumeArr.length > 0 && (resumeArr[0]?.text?.content || '').trim().length > 10;\n  const hasLinkedin = linkedinArr.length > 0 && (linkedinArr[0]?.text?.content || '').trim().length > 10;\n\n  if (hasResume && hasLinkedin) {\n    fullUrls.push(url);\n  } else {\n    urlMap[url] = { pageId, hasResume, hasLinkedin };\n  }\n}\n\nconst wfData = $workflow.staticData;\nif (wfData) {\n  const current = new Set(Array.isArray(wfData.processedUrls) ? wfData.processedUrls : []);\n  fullUrls.forEach(u => current.add(u));\n  wfData.processedUrls = [...current].slice(-2000);\n  wfData.needsUpdate = urlMap;\n}\n\nreturn [{ json: { ready: true, total: pages.length, aCompleter: Object.keys(urlMap).length } }];"
+      }
+    },
+    {
+      "id": "rss-0",
+      "name": "RSS — Search Engine Land",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        60
+      ],
+      "parameters": {
+        "url": "https://searchengineland.com/feed"
+      }
+    },
+    {
+      "id": "rss-1",
+      "name": "RSS — AdExchanger",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        180
+      ],
+      "parameters": {
+        "url": "https://www.adexchanger.com/feed"
+      }
+    },
+    {
+      "id": "rss-2",
+      "name": "RSS — PPC Hero",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        300
+      ],
+      "parameters": {
+        "url": "https://www.ppchero.com/feed"
+      }
+    },
+    {
+      "id": "rss-3",
+      "name": "RSS — Search Engine Journal",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        420
+      ],
+      "parameters": {
+        "url": "https://www.searchenginejournal.com/feed"
+      }
+    },
+    {
+      "id": "rss-4",
+      "name": "RSS — n8n Blog",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        540
+      ],
+      "parameters": {
+        "url": "https://blog.n8n.io/rss"
+      }
+    },
+    {
+      "id": "rss-5",
+      "name": "RSS — WordStream",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        660
+      ],
+      "parameters": {
+        "url": "https://www.wordstream.com/blog/feed"
+      }
+    },
+    {
+      "id": "merge",
+      "name": "Fusionner 6 flux",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1320,
+        400
+      ],
+      "parameters": {
+        "mode": "append"
+      }
+    },
+    {
+      "id": "format",
+      "name": "Filtrer + Formater",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\nconst wfData = $workflow.staticData;\nconst processedSet = new Set((wfData && wfData.processedUrls) ? wfData.processedUrls : []);\nconst needsUpdate = (wfData && wfData.needsUpdate) ? wfData.needsUpdate : {};\nconst newUrls = [];\n\nfunction decode(str) {\n  return str.replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<')\n            .replace(/&gt;/g,'>').replace(/&quot;/g,'\"').replace(/&#(\\d+);/g,(_,n)=>String.fromCharCode(n))\n            .replace(/\\s+/g,' ').trim();\n}\n\nfor (const item of items) {\n  const d = item.json;\n  const title = decode((d.titre || d.title || '').replace(/<[^>]+>/g, ''));\n  const url   = d.lien || d.link || d.url || '';\n  const pubDate = d['date de publication'] || d.pubDate || d.isoDate || '';\n  const snippet = decode((d.content||d.contenu||d['extrait de contenu']||d.summary||d.contentSnippet||'')\n    .replace(/<[^>]+>/g,'').slice(0,800));\n  const source = (d.source?.name || d.feed?.title || 'Autre').replace(/ - RSS.*$/i,'').trim();\n\n  if (!title || !url || !url.startsWith('http')) continue;\n  if (newUrls.includes(url)) continue;\n  if (processedSet.has(url)) continue;\n\n  const pub = new Date(pubDate);\n  if (pubDate && !isNaN(pub.getTime()) && (Date.now() - pub.getTime()) > 604800000) continue;\n\n  const text = (title + ' ' + snippet).toLowerCase();\n  const relevant = ['google ads','adwords','ppc','paid search','paid media','meta ads','facebook ads',\n    'automation','automatisation','n8n','workflow','ai ','artificial intelligence','machine learning',\n    'ad spend','campaign','cpc','roas','impression','bidding','performance max','smart bidding',\n    'agenc','marketing digital','programmatic'];\n  if (!relevant.some(w => text.includes(w))) continue;\n\n  const tags = [];\n  if (text.includes('google ads')||text.includes('adwords')||text.includes('paid search')) tags.push('Google Ads');\n  if (text.includes('meta')||text.includes('facebook ads')) tags.push('Meta Ads');\n  if (text.includes('automation')||text.includes('automatisation')) tags.push('Automation');\n  if (text.includes('n8n')) tags.push('n8n');\n  if (text.includes(' ai ')||text.includes('artificial intelligence')||text.includes('machine learning')) tags.push('IA');\n  if (text.includes('agenc')||text.includes('agence')) tags.push('Agences');\n  if (tags.length === 0) tags.push('Technologie');\n\n  const highValue = ['automation','n8n','workflow','google ads','ppc','performance max','smart bidding','roas','api'];\n  const score = highValue.filter(w => text.includes(w)).length;\n  const pertinence = score >= 3 ? '🔥 Haute' : score >= 1 ? '🟡 Moyenne' : '⬇️ Faible';\n  if (pertinence === '⬇️ Faible') continue;\n\n  const pubISO = !isNaN(pub.getTime()) ? pub.toISOString() : new Date().toISOString();\n  newUrls.push(url);\n\n  const existing = needsUpdate[url];\n  if (existing) {\n    results.push({ json: { title, url, source, snippet, tags, pertinence, pubISO,\n      _updateMode: true, _pageId: existing.pageId,\n      _needsResume: !existing.hasResume, _needsLinkedin: !existing.hasLinkedin }});\n  } else {\n    results.push({ json: { title, url, source, snippet, tags, pertinence, pubISO, _updateMode: false }});\n  }\n}\n\nif (wfData) wfData.processedUrls = [...processedSet, ...newUrls].slice(-2000);\nconst order = {'🔥 Haute': 0, '🟡 Moyenne': 1};\nreturn results.sort((a,b) => (order[a.json.pertinence]??1) - (order[b.json.pertinence]??1));"
+      }
+    },
+    {
+      "id": "fetch-content",
+      "name": "Jina — Lire Article",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\nlet articleContent = item.snippet || '';\n\ntry {\n  const jinaResp = await fetch(`https://r.jina.ai/${item.url}`, {\n    headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text', 'X-Timeout': '10' }\n  });\n  const text = await jinaResp.text();\n  if (text && text.length > 300\n      && !text.includes('SecurityCompromiseError')\n      && !text.toLowerCase().startsWith('error')) {\n    articleContent = text.slice(0, 4000);\n  }\n} catch(e) {}\n\nreturn { json: { ...item, articleContent } };",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "llm-resume",
+      "name": "Résumé IA — Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2040,
+        400
+      ],
+      "continueOnFail": true,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "promptType": "define",
+        "text": "Tu es un expert en marketing digital, publicite payante (Google Ads, Meta Ads) et automation marketing.\nTa mission : analyser cet article et produire une SYNTHESE ACTIONNABLE pour une agence PPC/automation.\n\nREGLES :\n- Langue : francais uniquement\n- Format : exactement 3 points cles introduits par le symbole bullet point (•)\n- Longueur : 120 mots maximum au total\n- Angle : ce que cela signifie concretement pour une agence (opportunite, risque, action)\n- Sois factuel et direct, zero generalite\n\nARTICLE :\nTitre : {{ $json.title }}\nSource : {{ $json.source }}\nContenu : {{ $json.articleContent }}"
+      }
+    },
+    {
+      "id": "llm-linkedin",
+      "name": "Post LinkedIn — Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2520,
+        320
+      ],
+      "continueOnFail": true,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "promptType": "define",
+        "text": "Tu es un expert LinkedIn pour les agences marketing digital.\nÉcris un post LinkedIn percutant basé sur cet article (consultant automation / Google Ads / n8n).\n\nRÈGLES :\n- Français, 150-200 mots max\n- Accroche forte → 2-3 insights → question ou CTA\n- Ton direct, expert, pas corporate\n- Max 3 hashtags spécifiques en fin de post\n- Commence par l'accroche, pas par \"Je viens de lire...\"\n\nArticle : {{ $json.title }}\nRésumé : {{ $json.ai_summary }}\n\nPost LinkedIn :"
+      }
+    },
+    {
+      "id": "chat-model",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        2280,
+        620
+      ],
+      "parameters": {
+        "modelName": "gemini-2.5-flash",
+        "options": {
+          "temperature": 0.4,
+          "maxOutputTokens": 450
+        }
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "mTD96rhOwH0wn5rL",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "id": "merge-ai",
+      "name": "Assembler Article + Résumé IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2280,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const aiOutput = ($input.item.json.text || $input.item.json.output || '').trim();\nconst orig = $('Jina — Lire Article').item.json;\nconst emoji = orig.pertinence?.includes('Haute') ? '🔥' : '📡';\nconst telegramMsg = `${emoji} *${orig.title}*\\n\\n${aiOutput}\\n\\n🔗 ${orig.url}`;\nconst { articleContent, ...origClean } = orig;\nreturn { json: { ...origClean, ai_summary: aiOutput, telegramMsg } };",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "merge-linkedin",
+      "name": "Assembler Post LinkedIn",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2760,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const linkedinPost = ($input.item.json.text || $input.item.json.output || '').trim();\nconst prev = $('Assembler Article + Résumé IA').item.json;\nreturn { json: { ...prev, linkedinPost } };",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "notion-payload",
+      "name": "Build Notion Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3000,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const d = $input.item.json;\nconst props = {};\n\nif (!d._updateMode || d._needsResume) {\n  props['Résumé'] = { rich_text: [{ text: { content: (d.ai_summary || d.snippet || '').slice(0,2000) } }] };\n}\nif (!d._updateMode || d._needsLinkedin) {\n  props['Idée post LinkedIn'] = { rich_text: [{ text: { content: (d.linkedinPost || '').slice(0,2000) } }] };\n}\nif (!d._updateMode) {\n  props['Titre']       = { title: [{ text: { content: d.title || '' } }] };\n  props['Source']      = { select: { name: d.source || 'Autre' } };\n  props['URL']         = { url: d.url || null };\n  props['Tags']        = { multi_select: (d.tags || []).map(t => ({ name: t })) };\n  props['Date']        = { date: { start: d.pubISO } };\n  props['Pertinence']  = { select: { name: d.pertinence || '🟡 Moyenne' } };\n}\n\nreturn { json: {\n  _updateMode: !!d._updateMode,\n  _pageId: d._pageId || '',\n  parent: { database_id: '371e27a7-f3e3-8104-abf3-ec5d673086f3' },\n  properties: props,\n  _telegramMsg: d.telegramMsg || '',\n  _pertinence: d.pertinence\n} };",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "if-upsert",
+      "name": "Nouveau ou Mise à jour ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3240,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._updateMode }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "notion-patch",
+      "name": "Notion — Mettre à jour Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3480,
+        220
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://api.notion.com/v1/pages/' + $json._pageId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ properties: $json.properties }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "notionApi": {
+          "id": "4rbkLchn0g0a74Te",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "id": "notion-post",
+      "name": "Notion — Créer Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3480,
+        420
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ parent: $json.parent, properties: $json.properties }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "notionApi": {
+          "id": "4rbkLchn0g0a74Te",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "id": "filter-hot",
+      "name": "Seulement Haute pertinence",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        2520,
+        560
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.pertinence }}",
+              "rightValue": "Haute",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "telegram",
+      "name": "Telegram — Alerte",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2760,
+        560
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "chatId": "6587303725",
+        "text": "={{ $json.telegramMsg }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "cAqYgyvMNZd6mPlk",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "7h + 13h — Tous les jours": {
+      "main": [
+        [
+          {
+            "node": "Charger URLs Notion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Charger URLs Notion": {
+      "main": [
+        [
+          {
+            "node": "Initialiser mémoire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialiser mémoire": {
+      "main": [
+        [
+          {
+            "node": "RSS — Search Engine Land",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS — AdExchanger",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS — PPC Hero",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS — Search Engine Journal",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS — n8n Blog",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS — WordStream",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fusionner 6 flux": {
+      "main": [
+        [
+          {
+            "node": "Filtrer + Formater",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrer + Formater": {
+      "main": [
+        [
+          {
+            "node": "Jina — Lire Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jina — Lire Article": {
+      "main": [
+        [
+          {
+            "node": "Résumé IA — Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Résumé IA — Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Assembler Article + Résumé IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Résumé IA — Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Post LinkedIn — Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assembler Article + Résumé IA": {
+      "main": [
+        [
+          {
+            "node": "Post LinkedIn — Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Seulement Haute pertinence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post LinkedIn — Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Assembler Post LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assembler Post LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Build Notion Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Notion Payload": {
+      "main": [
+        [
+          {
+            "node": "Nouveau ou Mise à jour ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nouveau ou Mise à jour ?": {
+      "main": [
+        [
+          {
+            "node": "Notion — Mettre à jour Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notion — Créer Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seulement Haute pertinence": {
+      "main": [
+        [
+          {
+            "node": "Telegram — Alerte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS — Search Engine Land": {
+      "main": [
+        [
+          {
+            "node": "Fusionner 6 flux",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS — AdExchanger": {
+      "main": [
+        [
+          {
+            "node": "Fusionner 6 flux",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "RSS — PPC Hero": {
+      "main": [
+        [
+          {
+            "node": "Fusionner 6 flux",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "RSS — Search Engine Journal": {
+      "main": [
+        [
+          {
+            "node": "Fusionner 6 flux",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "RSS — n8n Blog": {
+      "main": [
+        [
+          {
+            "node": "Fusionner 6 flux",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "RSS — WordStream": {
+      "main": [
+        [
+          {
+            "node": "Fusionner 6 flux",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris"
+  },
+  "tags": [
+    {
+      "name": "veille"
+    },
+    {
+      "name": "perso"
+    },
+    {
+      "name": "langchain"
+    },
+    {
+      "name": "v19"
+    },
+    {
+      "name": "gemini"
+    }
+  ],
+  "staticData": null
+}
