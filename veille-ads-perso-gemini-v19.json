@@ -51,7 +51,7 @@
         "operation": "getAll",
         "databaseId": {
           "__rl": true,
-          "value": "371e27a7-f3e3-8104-abf3-ec5d673086f3",
+          "value": "REMPLACER_PAR_ID_BASE_NOTION",
           "mode": "id"
         },
         "returnAll": true,
@@ -288,7 +288,7 @@
         320
       ],
       "parameters": {
-        "jsCode": "const d = $input.item.json;\nconst props = {};\n\nif (!d._updateMode || d._needsResume) {\n  props['Résumé'] = { rich_text: [{ text: { content: (d.ai_summary || d.snippet || '').slice(0,2000) } }] };\n}\nif (!d._updateMode || d._needsLinkedin) {\n  props['Idée post LinkedIn'] = { rich_text: [{ text: { content: (d.linkedinPost || '').slice(0,2000) } }] };\n}\nif (!d._updateMode) {\n  props['Titre']       = { title: [{ text: { content: d.title || '' } }] };\n  props['Source']      = { select: { name: d.source || 'Autre' } };\n  props['URL']         = { url: d.url || null };\n  props['Tags']        = { multi_select: (d.tags || []).map(t => ({ name: t })) };\n  props['Date']        = { date: { start: d.pubISO } };\n  props['Pertinence']  = { select: { name: d.pertinence || '🟡 Moyenne' } };\n}\n\nreturn { json: {\n  _updateMode: !!d._updateMode,\n  _pageId: d._pageId || '',\n  parent: { database_id: '371e27a7-f3e3-8104-abf3-ec5d673086f3' },\n  properties: props,\n  _telegramMsg: d.telegramMsg || '',\n  _pertinence: d.pertinence\n} };",
+        "jsCode": "const d = $input.item.json;\nconst props = {};\n\nif (!d._updateMode || d._needsResume) {\n  props['Résumé'] = { rich_text: [{ text: { content: (d.ai_summary || d.snippet || '').slice(0,2000) } }] };\n}\nif (!d._updateMode || d._needsLinkedin) {\n  props['Idée post LinkedIn'] = { rich_text: [{ text: { content: (d.linkedinPost || '').slice(0,2000) } }] };\n}\nif (!d._updateMode) {\n  props['Titre']       = { title: [{ text: { content: d.title || '' } }] };\n  props['Source']      = { select: { name: d.source || 'Autre' } };\n  props['URL']         = { url: d.url || null };\n  props['Tags']        = { multi_select: (d.tags || []).map(t => ({ name: t })) };\n  props['Date']        = { date: { start: d.pubISO } };\n  props['Pertinence']  = { select: { name: d.pertinence || '🟡 Moyenne' } };\n}\n\nreturn { json: {\n  _updateMode: !!d._updateMode,\n  _pageId: d._pageId || '',\n  parent: { database_id: 'REMPLACER_PAR_ID_BASE_NOTION' },\n  properties: props,\n  _telegramMsg: d.telegramMsg || '',\n  _pertinence: d.pertinence\n} };",
         "mode": "runOnceForEachItem"
       }
     },

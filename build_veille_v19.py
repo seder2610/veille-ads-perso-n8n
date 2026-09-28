@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-VEILLE_DB_ID = "371e27a7-f3e3-8104-abf3-ec5d673086f3"
+VEILLE_DB_ID = "REMPLACER_PAR_ID_BASE_NOTION"
 NOTION_CRED = {"id": "4rbkLchn0g0a74Te", "name": "Notion account"}
 TELEGRAM_CRED = {"id": "cAqYgyvMNZd6mPlk", "name": "Telegram account"}
 GEMINI_CRED = {"id": "mTD96rhOwH0wn5rL", "name": "Google Gemini API"}

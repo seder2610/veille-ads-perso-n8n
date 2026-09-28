@@ -6,7 +6,7 @@
 
 **Script de build :** `build_veille_v19.py` (remplace `build_veille_v18.py`, conservé pour historique local)
 
-**Variante client (livraison, max 3 articles) :** voir [`../veille-client/README.md`](../veille-client/README.md) et `veille-ads-client-v18.json`.
+**Variante client (livraison, max 3 articles) :** voir le dépôt [veille-ads-client-n8n](https://github.com/seder2610/veille-ads-client-n8n) et `veille-ads-client-v18.json`.
 
 ## Vue d'ensemble
 
@@ -27,7 +27,6 @@ Veille **usage personnel** : pipeline **6 RSS publishers** + **Jina**, sans plaf
 
 ## Correspondance archive
 
-Historique complet : [`../_archive/README-veille-lineage.md`](../_archive/README-veille-lineage.md).
 
 | Ancien fichier | Statut | Remplacement |
 |----------------|--------|--------------|
@@ -56,7 +55,7 @@ Si vous utilisiez `veille-ads-ollama-local-v2.json` ou `veille-ads-gemini-flash-
 1. **Désactiver** l’ancien workflow (HTTP `/api/generate` ou appels Gemini bruts).
 2. **Importer** le v19 correspondant — les prompts et assemblers lisent `text` / `output` des **chainLlm**, pas des réponses HTTP custom.
 3. **Re-créer les credentials** sur les nœuds LangChain (`lmChatOllama` / `lmChatGoogleGemini`).
-4. Notion : le v19 utilise **upsert** (pages incomplètes reprises via `needsUpdate`) — pas de changement de schéma DB (`371e27a7-f3e3-8104-abf3-ec5d673086f3`).
+4. Notion : le v19 utilise **upsert** (pages incomplètes reprises via `needsUpdate`) — pas de changement de schéma DB (`REMPLACER_PAR_ID_BASE_NOTION`).
 5. Telegram : inchangé (branche parallèle depuis **Assembler Article + Résumé IA**, filtre 🔥 Haute).
 
 ## Credentials
