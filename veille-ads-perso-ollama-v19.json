@@ -505,7 +505,7 @@
       ],
       "continueOnFail": true,
       "parameters": {
-        "chatId": "6587303725",
+        "chatId": "REMPLACER_PAR_CHAT_ID",
         "text": "={{ $json.telegramMsg }}",
         "additionalFields": {
           "parse_mode": "Markdown",

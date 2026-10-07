@@ -555,7 +555,7 @@ def build_workflow(backend: str):
         "position": [x + 2560, 560],
         "continueOnFail": True,
         "parameters": {
-            "chatId": "6587303725",
+            "chatId": "REMPLACER_PAR_CHAT_ID",
             "text": "={{ $json.telegramMsg }}",
             "additionalFields": {"parse_mode": "Markdown", "disable_web_page_preview": True},
         },
