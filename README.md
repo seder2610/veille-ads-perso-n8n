@@ -1,249 +1,140 @@
-# Veille ADS — Perso (Ollama / Gemini + LangChain v19)
+# LLM news-monitoring pipeline for n8n (Ollama / Gemini)
 
-**Fichiers à importer (seule source à jour) :**
-- `veille-ads-perso-ollama-v19.json` — **27 nœuds** (gate Ollama + 2 chains LangChain)
-- `veille-ads-perso-gemini-v19.json` — **24 nœuds**
+An n8n workflow that reads RSS feeds, filters articles by keyword relevance, fetches the full text, and runs two LangChain chains on a single chat model: a 3-bullet summary and a LinkedIn post draft. Results are upserted into a Notion database, and high-relevance items are sent to Telegram. The model backend is either a local Ollama instance (`qwen2.5:14b`) or Gemini (`gemini-2.5-flash`).
 
-**Script de build :** `build_veille_v19.py` (remplace `build_veille_v18.py`, conservé pour historique local)
+Example configuration: ad-tech news (6 RSS sources).
 
-**Variante client (livraison, max 3 articles) :** voir [`../veille-client/README.md`](../veille-client/README.md) et `veille-ads-client-v18.json`.
+## Architecture
 
-## Vue d'ensemble
-
-Veille **usage personnel** : pipeline **6 RSS publishers** + **Jina**, sans plafond d’articles, exclusion des articles **⬇️ Faible**, **deux Basic LLM Chains** (résumé + idée post LinkedIn), **upsert Notion** (compléter Résumé / LinkedIn manquants), timezone **Europe/Paris**.
-
-| Critère | Client v18 | Perso v19 |
-|--------|------------|-----------|
-| LLM | Gemini cloud | **Ollama** `qwen2.5:14b` **ou** Gemini |
-| Chaînes LangChain | 1 (résumé) | 2 (résumé + LinkedIn) |
-| Max articles/run | 3 | **Aucune limite** |
-| Faible pertinence | Gardée | **Filtrée** |
-| Notion | Create natif | **PATCH** update + **POST** create |
-| Cron | Lun–Ven 7h/13h | **Tous les jours** 7h/13h |
-| LinkedIn | Non | Colonne **Idée post LinkedIn** |
-| Gate Ollama | Non | **Check Ollama UP** → IF **qwen** → sinon Stop |
-| Filtre / IF n8n | filter/if v2 | **filter/if v2.2** (conditions v2) |
-| chainLlm | continueOnFail | **+ onError: continueErrorOutput** |
-
-## Correspondance archive
-
-Historique complet : [`../_archive/README-veille-lineage.md`](../_archive/README-veille-lineage.md).
-
-| Ancien fichier | Statut | Remplacement |
-|----------------|--------|--------------|
-| `_archive/veille-ads-gnews-notion-telegram.json` | Figé (base client) | Client v18 + perso v19 |
-| `_archive/veille-ads-ollama-local-v2.json` | Archivé | `veille-ads-perso-ollama-v19.json` |
-| `_archive/veille-ads-gemini-flash-v1.json` | Archivé | `veille-ads-perso-gemini-v19.json` |
-| `veille-ads-perso-*-v3.json` | Supprimé (regénérer v19) | Fichiers v19 ci-dessus |
-
-## Import dans n8n
-
-1. Choisir **un seul** workflow actif : Ollama (local) **ou** Gemini (cloud).
-2. **Import from file** → JSON v19 correspondant.
-3. Credentials :
-   - **Notion account** — getAll + HTTP API (PATCH/POST pages).
-   - **Ollama Local** (Ollama) — base URL `http://host.orb.internal:11434`.
-   - **Google Gemini API** (Gemini) — sous-modèle LangChain.
-   - **Telegram account** — `chatId` `6587303725`.
-4. (Ollama) Vérifier que `qwen2.5:14b` est pull ; une exécution manuelle doit passer **Check Ollama UP** → **Ollama disponible ?**.
-5. Tags workflow n8n : `veille`, `perso`, `langchain`, `v19`, `ollama`|`gemini`.
-6. Activer le workflow.
-
-## Migration depuis les workflows HTTP v2
-
-Si vous utilisiez `veille-ads-ollama-local-v2.json` ou `veille-ads-gemini-flash-v1.json` :
-
-1. **Désactiver** l’ancien workflow (HTTP `/api/generate` ou appels Gemini bruts).
-2. **Importer** le v19 correspondant — les prompts et assemblers lisent `text` / `output` des **chainLlm**, pas des réponses HTTP custom.
-3. **Re-créer les credentials** sur les nœuds LangChain (`lmChatOllama` / `lmChatGoogleGemini`).
-4. Notion : le v19 utilise **upsert** (pages incomplètes reprises via `needsUpdate`) — pas de changement de schéma DB (`371e27a7-f3e3-8104-abf3-ec5d673086f3`).
-5. Telegram : inchangé (branche parallèle depuis **Assembler Article + Résumé IA**, filtre 🔥 Haute).
-
-## Credentials
-
-| Credential | Ollama v19 | Gemini v19 |
-|------------|------------|------------|
-| Notion account | Oui | Oui |
-| Ollama Local | Oui | — |
-| Google Gemini API | — | Oui |
-| Telegram account | Oui | Oui |
-
-## Cron & timezone
-
-- **Expression :** `0 7,13 * * *` — 7h et 13h **chaque jour** (Europe/Paris via `settings.timezone`).
-- Plus agressif que le client (Lun–Ven) pour capter les actus US le week-end.
-
-## Pattern LangChain (v19)
-
-- Deux nœuds **`chainLlm` v1.9** avec **`onError: continueErrorOutput`** (résumé + LinkedIn).
-- Un **Chat Model** relié aux deux chains via **`ai_languageModel`**.
-- Prompt résumé : **3 points avec bullet •** (aligné archive gnews + client v18).
-
-### Flux Ollama (gate)
-
-```
-Schedule → Check Ollama UP (GET /api/tags)
-         → Ollama disponible ? (JSON contient "qwen")
-              ├─ oui → Charger URLs Notion → … pipeline …
-              └─ non → Stop — Ollama indisponible
+```mermaid
+flowchart LR
+    S[Schedule<br/>07:00 / 13:00] --> H{{Ollama health check<br/>Ollama variant only}}
+    H -- model missing --> X[Stop and error]
+    H -- ok --> N[Load existing<br/>Notion pages]
+    S -. Gemini variant .-> N
+    N --> M[Build memory:<br/>processed / incomplete URLs]
+    M --> R[6 RSS feeds → merge]
+    R --> F[Filter + format<br/>keywords, age, relevance]
+    F --> J[Jina Reader<br/>full text]
+    J --> C1[LLM chain:<br/>summary]
+    C1 --> C2[LLM chain:<br/>LinkedIn post]
+    C2 --> U{New or<br/>incomplete page?}
+    U -- new --> P[Notion POST]
+    U -- incomplete --> A[Notion PATCH]
+    C1 --> T{Relevance = High?}
+    T -- yes --> TG[Telegram alert]
 ```
 
-### Flux Gemini
+Two variants are generated from the same script:
 
-```
-Schedule → Charger URLs Notion → … (pas de nœuds Ollama)
-```
+| File | Nodes | Model |
+|------|-------|-------|
+| `veille-ads-perso-ollama-v19.json` | 27 | Ollama `qwen2.5:14b` (local) |
+| `veille-ads-perso-gemini-v19.json` | 24 | Gemini `gemini-2.5-flash` (cloud) |
 
-### Flux article (commun)
+The Gemini variant has no health check; the three extra nodes in the Ollama variant are the check, the IF and the stop node.
 
-```
-… → RSS×6 → Merge → Filtrer + Formater → Jina
-  → Résumé Chain → Assembler Résumé ─┬→ LinkedIn Chain → Assembler LI → Build Payload → IF upsert → PATCH/POST
-                                    └→ Filtre Haute (v2.2) → Telegram
-```
+## Engineering choices
 
----
+- **Local/cloud model switch with a blocking health check.** The Ollama variant calls `GET /api/tags` first and continues only if the response contains `qwen`; otherwise a Stop-and-Error node ends the run before any Notion, RSS or Jina call. The Gemini variant uses the same pipeline without that gate.
+- **Two LangChain chains sharing one model.** The summary and LinkedIn chains (`chainLlm` 1.9) are both wired to a single chat-model node through `ai_languageModel`. Both set `onError: continueErrorOutput`, so a failing item does not abort the whole run.
+- **Idempotent Notion upsert.** Existing pages are loaded first. Pages that already have both a summary and a LinkedIn draft are marked as processed. Pages missing one of the two fields are patched (PATCH) with only the missing field; unknown articles are created (POST). Re-running does not create duplicates.
+- **Workflows generated by script.** `build_veille_v19.py` builds both JSON files from one definition (nodes, prompts, Code-node sources, connections) and re-parses each file after writing it.
+- **Relevance filtering before any LLM call.** Articles older than 7 days, already processed, not matching the keyword list, or scored "Low" are dropped before the Jina fetch and the LLM chains. Remaining items are sorted High first.
 
-## Documentation nœud par nœud
+## Quick start
 
-### Guide — Veille Perso v19
-| | |
-|--|--|
-| **TYPE** | stickyNote |
-| **RÔLE** | Aide-mémoire canvas (Ollama vs Gemini, v19) |
+1. In Notion, create a database with these properties: `Titre` (title), `Source` (select), `URL` (url), `Tags` (multi-select), `Date` (date), `Pertinence` (select), `Résumé` (rich text), `Idée post LinkedIn` (rich text). Share it with your Notion integration.
+2. Set `VEILLE_DB_ID` at the top of `build_veille_v19.py` to your database ID, then regenerate (see below). The credential IDs in the script (`NOTION_CRED`, `TELEGRAM_CRED`, `GEMINI_CRED`, `OLLAMA_CRED`) are n8n-internal IDs from the author's instance; after import, re-select your own credentials on each node.
+3. In n8n: **Import from file** → one of the two JSON files. Activate only one of them.
+4. Credentials:
+   - **Notion** — used by the `getAll` node and by the two HTTP PATCH/POST nodes.
+   - **Telegram** — and replace `REMPLACER_PAR_CHAT_ID` with your chat ID in the Telegram node.
+   - **Ollama** (Ollama variant) — the health-check URL is hardcoded to `http://host.orb.internal:11434` (OrbStack); change `OLLAMA_BASE` in the script if your host differs, and set the same base URL in the Ollama credential.
+   - **Google Gemini API** (Gemini variant).
+5. Ollama variant: make sure the model is available (`ollama pull qwen2.5:14b`). A manual run should pass **Check Ollama UP** and **Ollama disponible ?**.
+6. Activate the workflow. The schedule is `0 7,13 * * *` (twice a day, every day), timezone `Europe/Paris`.
 
-### 7h + 13h — Tous les jours
-| | |
-|--|--|
-| **TYPE** | scheduleTrigger `0 7,13 * * *` |
-| **RÔLE** | Déclenche la collecte 2×/jour, 7j/7 |
-| **SORTIE Ollama** | → **Check Ollama UP** |
-| **SORTIE Gemini** | → **Charger URLs Notion** |
+## Adapting it to another topic
 
-### Check Ollama UP *(Ollama uniquement)*
-| | |
-|--|--|
-| **TYPE** | httpRequest GET `{base}/api/tags` |
-| **RÔLE** | Health check avant toute charge Notion/RSS |
-| **POURQUOI** | Éviter des centaines d’appels Jina/LLM si OrbStack/Ollama est down |
+All topic-specific content lives in a few places in `build_veille_v19.py`:
 
-### Ollama disponible ? *(Ollama uniquement)*
-| | |
-|--|--|
-| **TYPE** | if **v2.2** (conditions **version 2**) |
-| **CONDITION** | `JSON.stringify($json)` **contient** `qwen` |
-| **TRUE** | → Charger URLs Notion |
-| **FALSE** | → Stop — Ollama indisponible |
+- **Sources** — the `RSS_FEEDS` list (URL, name). The merge node is named "Fusionner 6 flux" and the connections are built from this list; if you change the number of feeds, check the Merge node's number of inputs in n8n.
+- **Keywords and scoring** — the `FILTER_PERSO` code (node *Filtrer + Formater*): the `relevant` list (an article must contain at least one term), the tag rules, and the `highValue` list (0 matches = Low and dropped, 1–2 = Medium, 3+ = High). Telegram alerts only fire on High.
+- **Prompts** — `SUMMARY_PROMPT` and `LINKEDIN_PROMPT`. Both are written in French and target a PPC/automation agency; rewrite the role, language and constraints.
+- **Notion property names** — used in `SEED_CODE` and `NOTION_PAYLOAD`.
 
-### Stop — Ollama indisponible *(Ollama uniquement)*
-| | |
-|--|--|
-| **TYPE** | stopAndError |
-| **RÔLE** | Arrêt explicite avec message (pull `qwen2.5:14b`, OrbStack) |
+Then run `python3 build_veille_v19.py` and re-import the JSON.
 
-### Charger URLs Notion
-| | |
-|--|--|
-| **TYPE** | notion getAll (DB `371e27a7-…`) |
-| **RÔLE** | Liste pages + Résumé / Idée post LinkedIn / URL |
-| **POURQUOI** | Base upsert (`needsUpdate`) |
-
-### Initialiser mémoire
-| | |
-|--|--|
-| **TYPE** | code |
-| **RÔLE** | `processedUrls` + `needsUpdate[url]` si champs IA manquants |
-| **SORTIE** | Fan-out vers 6 RSS |
-
-### RSS ×6 + Fusionner 6 flux
-| | |
-|--|--|
-| **TYPE** | rssFeedRead + merge append |
-| **SOURCES** | SEL, AdExchanger, PPC Hero, SEJ, n8n Blog, WordStream |
-
-### Filtrer + Formater
-| | |
-|--|--|
-| **TYPE** | code |
-| **RÔLE** | Mots-clés (+ `marketing digital`, `programmatic`, `agenc`), tag **Agences**, score **api**, skip **Faible**, **pas** de `.slice(0,3)`, flags `_updateMode` / `_pageId` / `_needsResume` / `_needsLinkedin` |
-
-### Jina — Lire Article
-| | |
-|--|--|
-| **TYPE** | code (fetch r.jina.ai) |
-| **RÔLE** | Contenu long pour LLM |
-
-### Résumé IA — Basic LLM Chain
-| | |
-|--|--|
-| **TYPE** | chainLlm **1.9**, `onError: continueErrorOutput` |
-| **RÔLE** | Synthèse FR **3× •** |
-
-### Post LinkedIn — Basic LLM Chain
-| | |
-|--|--|
-| **TYPE** | chainLlm **1.9**, `onError: continueErrorOutput` |
-| **INPUT** | Titre + `ai_summary` depuis branche Assembler |
-
-### Ollama Chat Model / Google Gemini Chat Model
-| | |
-|--|--|
-| **TYPE** | lmChatOllama `qwen2.5:14b` **ou** lmChatGoogleGemini `gemini-2.5-flash` |
-| **LIEN** | 2 cibles `ai_languageModel` (résumé + LinkedIn) |
-
-### Assembler Article + Résumé IA
-| | |
-|--|--|
-| **TYPE** | code |
-| **RÔLE** | `ai_summary`, `telegramMsg` ; **double** branche main (LinkedIn + Telegram) |
-
-### Assembler Post LinkedIn
-| | |
-|--|--|
-| **TYPE** | code |
-| **RÔLE** | Champ `linkedinPost` |
-
-### Build Notion Payload
-| | |
-|--|--|
-| **TYPE** | code |
-| **RÔLE** | Properties Notion partielles (update) ou complètes (create) |
-
-### Nouveau ou Mise à jour ?
-| | |
-|--|--|
-| **TYPE** | if **v2.2**, `$json._updateMode === true` |
-| **TRUE** | PATCH · **FALSE** | POST |
-
-### Notion — Mettre à jour Page / Créer Page
-| | |
-|--|--|
-| **TYPE** | httpRequest PATCH/POST |
-| **OPTIONS** | `continueOnFail: true` |
-
-### Seulement Haute pertinence
-| | |
-|--|--|
-| **TYPE** | filter **v2.2** (conditions v2), pertinence contient `Haute` |
-
-### Telegram — Alerte
-| | |
-|--|--|
-| **TYPE** | telegram, `continueOnFail: true` |
-| **RÔLE** | Alertes 🔥 uniquement |
-
----
-
-## Regénérer les JSON
+## Regenerating the workflows
 
 ```bash
-cd veille-perso
 python3 build_veille_v19.py
 ```
 
-| Fichier | Nœuds |
-|---------|-------|
-| veille-ads-perso-ollama-v19.json | 27 |
-| veille-ads-perso-gemini-v19.json | 24 |
+The script writes both JSON files next to itself and re-parses them after writing (node counts: 27 Ollama, 24 Gemini).
 
-Validation : le script re-parse chaque JSON après écriture.
+<details>
+<summary>Node-by-node documentation</summary>
+
+### Guide — Veille Perso v19
+Sticky note on the canvas (backend, chains, cron).
+
+### 7h + 13h — Tous les jours
+`scheduleTrigger`, cron `0 7,13 * * *`. Output goes to **Check Ollama UP** (Ollama variant) or **Charger URLs Notion** (Gemini variant).
+
+### Check Ollama UP *(Ollama variant only)*
+`httpRequest` GET `{OLLAMA_BASE}/api/tags`, 8 s timeout. Runs before any other work so an unavailable Ollama stops the run early.
+
+### Ollama disponible ? *(Ollama variant only)*
+`if` v2.2. Condition: `JSON.stringify($json)` contains `qwen` (case-insensitive). True → **Charger URLs Notion**; false → **Stop — Ollama indisponible**. The check matches the substring `qwen`, not the exact tag `qwen2.5:14b`.
+
+### Stop — Ollama indisponible *(Ollama variant only)*
+`stopAndError` with a message pointing to OrbStack / `ollama pull qwen2.5:14b`.
+
+### Charger URLs Notion
+`notion` getAll on the database, all pages, `alwaysOutputData`.
+
+### Initialiser mémoire
+`code`. Writes to workflow static data: `processedUrls` (pages that have both fields longer than 10 characters, merged with previous values, capped at the last 2000) and `needsUpdate[url]` (page ID plus which fields are missing). Fans out to the 6 RSS nodes.
+
+### RSS ×6 + Fusionner 6 flux
+`rssFeedRead` × 6 (Search Engine Land, AdExchanger, PPC Hero, Search Engine Journal, n8n Blog, WordStream) → `merge` v3, mode `append`.
+
+### Filtrer + Formater
+`code`. Drops items without title/URL, duplicates, URLs already in `processedUrls`, items older than 7 days, items with no keyword match, and items scored Low. Assigns tags and a relevance level (High/Medium), and marks items found in `needsUpdate` with `_updateMode`, `_pageId`, `_needsResume`, `_needsLinkedin`. Sorts High first. Adds the new URLs to `processedUrls`.
+
+### Jina — Lire Article
+`code` (run once per item). Fetches `https://r.jina.ai/{url}` and keeps the first 4000 characters; falls back to the RSS snippet on error or short/error responses.
+
+### Résumé IA — Basic LLM Chain
+`chainLlm` 1.9, `onError: continueErrorOutput`. French summary, exactly 3 points with `•`, 120 words max.
+
+### Post LinkedIn — Basic LLM Chain
+`chainLlm` 1.9, `onError: continueErrorOutput`. French LinkedIn post, 150–200 words, built from the title and the summary.
+
+### Ollama Chat Model / Google Gemini Chat Model
+`lmChatOllama` (`qwen2.5:14b`, temperature 0.4, `numPredict` 400) or `lmChatGoogleGemini` (`gemini-2.5-flash`, temperature 0.4, `maxOutputTokens` 450). Connected to both chains through `ai_languageModel`.
+
+### Assembler Article + Résumé IA
+`code`. Reads the chain output (`text` or `output`), builds `ai_summary` and the Telegram message, and drops the full article text. Feeds two branches: the LinkedIn chain and the Telegram filter.
+
+### Assembler Post LinkedIn
+`code`. Adds `linkedinPost` to the previous item.
+
+### Build Notion Payload
+`code`. Builds partial properties for updates (only the missing field) or full properties for new pages.
+
+### Nouveau ou Mise à jour ?
+`if` v2.2 on `_updateMode === true`. True → PATCH, false → POST.
+
+### Notion — Mettre à jour Page / Créer Page
+`httpRequest` PATCH `/v1/pages/{id}` or POST `/v1/pages`, `Notion-Version: 2022-06-28`, `continueOnFail: true`.
+
+### Seulement Haute pertinence
+`filter` v2.2: `pertinence` contains `Haute`.
+
+### Telegram — Alerte
+`telegram`, Markdown, link preview disabled, `continueOnFail: true`.
+
+</details>
