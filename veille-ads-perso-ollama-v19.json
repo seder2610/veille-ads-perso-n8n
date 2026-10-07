@@ -13,7 +13,7 @@
       "parameters": {
         "width": 540,
         "height": 200,
-        "content": "## Veille ADS Perso v3\nOllama qwen2.5:14b local — 2 Basic LLM Chains (résumé + LinkedIn)\nUpsert Notion (HTTP PATCH/POST) · Telegram 🔥 Haute\nCron : 7h et 13h tous les jours"
+        "content": "## Veille ADS Perso v19\nOllama qwen2.5:14b local — 2 Basic LLM Chains (résumé + LinkedIn)\nUpsert Notion (HTTP PATCH/POST) · Telegram 🔥 Haute\nCron : 7h et 13h tous les jours"
       }
     },
     {
@@ -165,7 +165,8 @@
         400
       ],
       "parameters": {
-        "mode": "append"
+        "mode": "append",
+        "numberInputs": 6
       }
     },
     {
@@ -204,7 +205,6 @@
         2040,
         400
       ],
-      "continueOnFail": true,
       "onError": "continueErrorOutput",
       "parameters": {
         "promptType": "define",
@@ -220,7 +220,6 @@
         2520,
         320
       ],
-      "continueOnFail": true,
       "onError": "continueErrorOutput",
       "parameters": {
         "promptType": "define",
@@ -313,6 +312,17 @@
           "name": "Ollama Local"
         }
       }
+    },
+    {
+      "id": "llm-error",
+      "name": "Erreur LLM — article ignoré",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2280,
+        220
+      ],
+      "parameters": {}
     },
     {
       "id": "merge-ai",
@@ -649,6 +659,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Erreur LLM — article ignoré",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -689,6 +706,13 @@
         [
           {
             "node": "Assembler Post LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erreur LLM — article ignoré",
             "type": "main",
             "index": 0
           }

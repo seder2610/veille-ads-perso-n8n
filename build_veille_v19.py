@@ -235,7 +235,7 @@ def build_workflow(backend: str):
     x = 200
 
     sticky = (
-        "## Veille ADS Perso v3\n"
+        "## Veille ADS Perso v19\n"
         + ("Ollama qwen2.5:14b local — " if is_ollama else "Gemini 2.5-flash — ")
         + "2 Basic LLM Chains (résumé + LinkedIn)\n"
         "Upsert Notion (HTTP PATCH/POST) · Telegram 🔥 Haute\n"
@@ -306,7 +306,7 @@ def build_workflow(backend: str):
         "type": "n8n-nodes-base.merge",
         "typeVersion": 3,
         "position": [x + 1120, 400],
-        "parameters": {"mode": "append"},
+        "parameters": {"mode": "append", "numberInputs": len(RSS_FEEDS)},
     })
 
     nodes.append({
@@ -333,7 +333,6 @@ def build_workflow(backend: str):
         "type": "@n8n/n8n-nodes-langchain.chainLlm",
         "typeVersion": 1.9,
         "position": [x + 1840, 400],
-        "continueOnFail": True,
         "onError": "continueErrorOutput",
         "parameters": {"promptType": "define", "text": SUMMARY_PROMPT},
     })
@@ -344,7 +343,6 @@ def build_workflow(backend: str):
         "type": "@n8n/n8n-nodes-langchain.chainLlm",
         "typeVersion": 1.9,
         "position": [x + 2320, 320],
-        "continueOnFail": True,
         "onError": "continueErrorOutput",
         "parameters": {"promptType": "define", "text": LINKEDIN_PROMPT},
     })
@@ -423,6 +421,15 @@ def build_workflow(backend: str):
             },
             "credentials": {"googlePalmApi": GEMINI_CRED},
         })
+
+    nodes.append({
+        "id": "llm-error",
+        "name": "Erreur LLM — article ignoré",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [x + 2080, 220],
+        "parameters": {},
+    })
 
     nodes.append({
         "id": "merge-ai",
@@ -581,7 +588,10 @@ def build_workflow(backend: str):
         "Fusionner 6 flux": {"main": [[{"node": "Filtrer + Formater", "type": "main", "index": 0}]]},
         "Filtrer + Formater": {"main": [[{"node": "Jina — Lire Article", "type": "main", "index": 0}]]},
         "Jina — Lire Article": {"main": [[{"node": "Résumé IA — Basic LLM Chain", "type": "main", "index": 0}]]},
-        "Résumé IA — Basic LLM Chain": {"main": [[{"node": "Assembler Article + Résumé IA", "type": "main", "index": 0}]]},
+        "Résumé IA — Basic LLM Chain": {"main": [
+            [{"node": "Assembler Article + Résumé IA", "type": "main", "index": 0}],
+            [{"node": "Erreur LLM — article ignoré", "type": "main", "index": 0}],
+        ]},
         model_node_name: {
             "ai_languageModel": [[
                 {"node": "Résumé IA — Basic LLM Chain", "type": "ai_languageModel", "index": 0},
@@ -592,7 +602,10 @@ def build_workflow(backend: str):
             {"node": "Post LinkedIn — Basic LLM Chain", "type": "main", "index": 0},
             {"node": "Seulement Haute pertinence", "type": "main", "index": 0},
         ]]},
-        "Post LinkedIn — Basic LLM Chain": {"main": [[{"node": "Assembler Post LinkedIn", "type": "main", "index": 0}]]},
+        "Post LinkedIn — Basic LLM Chain": {"main": [
+            [{"node": "Assembler Post LinkedIn", "type": "main", "index": 0}],
+            [{"node": "Erreur LLM — article ignoré", "type": "main", "index": 0}],
+        ]},
         "Assembler Post LinkedIn": {"main": [[{"node": "Build Notion Payload", "type": "main", "index": 0}]]},
         "Build Notion Payload": {"main": [[{"node": "Nouveau ou Mise à jour ?", "type": "main", "index": 0}]]},
         "Nouveau ou Mise à jour ?": {"main": [
